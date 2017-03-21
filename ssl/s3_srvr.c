@@ -606,7 +606,13 @@ int ssl3_accept(SSL *s)
 
         case SSL3_ST_SR_KEY_EXCH_A:
         case SSL3_ST_SR_KEY_EXCH_B:
+        case SSL3_ST_SR_KEY_EXCH_C:
             ret = ssl3_get_client_key_exchange(s);
+            if (ret == PENDING_DECRYPT) {
+                s->state = SSL3_ST_SR_KEY_EXCH_C;
+                s->rwstate = SSL_PENDING_DECRYPT;
+                goto end;
+            }
             if (ret <= 0)
                 goto end;
             if (ret == 2) {
@@ -2180,14 +2186,19 @@ int ssl3_get_client_key_exchange(SSL *s)
     BN_CTX *bn_ctx = NULL;
 #endif
 
-    n = s->method->ssl_get_message(s,
-                                   SSL3_ST_SR_KEY_EXCH_A,
-                                   SSL3_ST_SR_KEY_EXCH_B,
-                                   SSL3_MT_CLIENT_KEY_EXCHANGE, 2048, &ok);
+    if (s->state != SSL3_ST_SR_KEY_EXCH_C) {
+        n = s->method->ssl_get_message(s,
+                                       SSL3_ST_SR_KEY_EXCH_A,
+                                       SSL3_ST_SR_KEY_EXCH_B,
+                                       SSL3_MT_CLIENT_KEY_EXCHANGE, 2048, &ok);
 
-    if (!ok)
-        return ((int)n);
-    p = (unsigned char *)s->init_msg;
+        if (!ok)
+            return ((int)n);
+        p = (unsigned char *)s->init_msg;
+    } else {
+        p = (unsigned char *)s->init_msg;
+        n = s->init_num;
+    }
 
     alg_k = s->s3->tmp.new_cipher->algorithm_mkey;
 
@@ -2197,32 +2208,7 @@ int ssl3_get_client_key_exchange(SSL *s)
         int decrypt_len;
         unsigned char decrypt_good, version_good;
         size_t j;
-
-        /* FIX THIS UP EAY EAY EAY EAY */
-        if (s->s3->tmp.use_rsa_tmp) {
-            if ((s->cert != NULL) && (s->cert->rsa_tmp != NULL))
-                rsa = s->cert->rsa_tmp;
-            /*
-             * Don't do a callback because rsa_tmp should be sent already
-             */
-            if (rsa == NULL) {
-                al = SSL_AD_HANDSHAKE_FAILURE;
-                SSLerr(SSL_F_SSL3_GET_CLIENT_KEY_EXCHANGE,
-                       SSL_R_MISSING_TMP_RSA_PKEY);
-                goto f_err;
-
-            }
-        } else {
-            pkey = s->cert->pkeys[SSL_PKEY_RSA_ENC].privatekey;
-            if ((pkey == NULL) ||
-                (pkey->type != EVP_PKEY_RSA) || (pkey->pkey.rsa == NULL)) {
-                al = SSL_AD_HANDSHAKE_FAILURE;
-                SSLerr(SSL_F_SSL3_GET_CLIENT_KEY_EXCHANGE,
-                       SSL_R_MISSING_RSA_CERTIFICATE);
-                goto f_err;
-            }
-            rsa = pkey->pkey.rsa;
-        }
+        SSL_STR *pri_data = NULL;
 
         /* TLS and [incidentally] DTLS{0xFEFF} */
         if (s->version > SSL3_VERSION && s->version != DTLS1_BAD_VER) {
@@ -2253,20 +2239,69 @@ int ssl3_get_client_key_exchange(SSL *s)
             goto f_err;
         }
 
-        /*
-         * We must not leak whether a decryption failure occurs because of
-         * Bleichenbacher's attack on PKCS #1 v1.5 RSA padding (see RFC 2246,
-         * section 7.4.7.1). The code follows that advice of the TLS RFC and
-         * generates a random premaster secret for the case that the decrypt
-         * fails. See https://tools.ietf.org/html/rfc5246#section-7.4.7.1
-         */
+        if (s->cert->secret_gen_cb != NULL) {
+            /* get key from keyless by lua, set decrypt_len and p */
+            pri_data = s->cert->secret_gen_cb(s, p, n);
+            if (pri_data == SSL_magic_pending_decrypt_ptr()) {
+                return PENDING_DECRYPT;
+            }
+
+            if (!pri_data) { //secret_gen_cb return NULL
+                al = SSL_AD_HANDSHAKE_FAILURE;
+                SSLerr(SSL_F_SSL3_GET_CLIENT_KEY_EXCHANGE,
+                       SSL_R_MISSING_RSA_CERTIFICATE);
+                goto f_err;
+            }
+        }
+
+        if (pri_data && pri_data->data) { //secret_gen_cb can not get secret
+            memcpy(p, pri_data->data, pri_data->len);
+            decrypt_len = pri_data->len;
+
+        } else { //!pri_data || !(pri_data->data)
+            /* FIX THIS UP EAY EAY EAY EAY */
+            if (s->s3->tmp.use_rsa_tmp) {
+                if ((s->cert != NULL) && (s->cert->rsa_tmp != NULL))
+                    rsa = s->cert->rsa_tmp;
+                /*
+                 * Don't do a callback because rsa_tmp should be sent already
+                 */
+                if (rsa == NULL) {
+                    al = SSL_AD_HANDSHAKE_FAILURE;
+                    SSLerr(SSL_F_SSL3_GET_CLIENT_KEY_EXCHANGE,
+                           SSL_R_MISSING_TMP_RSA_PKEY);
+                    goto f_err;
+
+                }
+            } else {
+                pkey = s->cert->pkeys[SSL_PKEY_RSA_ENC].privatekey;
+                if ((pkey == NULL) ||
+                    (pkey->type != EVP_PKEY_RSA) || (pkey->pkey.rsa == NULL)) {
+                    al = SSL_AD_HANDSHAKE_FAILURE;
+                    SSLerr(SSL_F_SSL3_GET_CLIENT_KEY_EXCHANGE,
+                           SSL_R_MISSING_RSA_CERTIFICATE);
+                    goto f_err;
+                }
+                rsa = pkey->pkey.rsa;
+            }
+
+            /*
+             * We must not leak whether a decryption failure occurs because of
+             * Bleichenbacher's attack on PKCS #1 v1.5 RSA padding (see RFC 2246,
+             * section 7.4.7.1). The code follows that advice of the TLS RFC and
+             * generates a random premaster secret for the case that the decrypt
+             * fails. See https://tools.ietf.org/html/rfc5246#section-7.4.7.1
+             */
+            decrypt_len =
+                RSA_private_decrypt((int)n, p, p, rsa, RSA_PKCS1_PADDING);
+            ERR_clear_error();
+        }
+
+        /* end of rsa private decrypt */
 
         if (RAND_bytes(rand_premaster_secret,
                        sizeof(rand_premaster_secret)) <= 0)
             goto err;
-        decrypt_len =
-            RSA_private_decrypt((int)n, p, p, rsa, RSA_PKCS1_PADDING);
-        ERR_clear_error();
 
         /*
          * decrypt_len should be SSL_MAX_MASTER_KEY_LENGTH. decrypt_good will

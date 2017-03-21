@@ -376,6 +376,7 @@ typedef struct ssl_cipher_st SSL_CIPHER;
 typedef struct ssl_session_st SSL_SESSION;
 typedef struct tls_sigalgs_st TLS_SIGALGS;
 typedef struct ssl_conf_ctx_st SSL_CONF_CTX;
+typedef struct ssl_str_st SSL_STR;
 
 DECLARE_STACK_OF(SSL_CIPHER)
 
@@ -922,6 +923,11 @@ struct ssl_comp_st {
 DECLARE_STACK_OF(SSL_COMP)
 DECLARE_LHASH_OF(SSL_SESSION);
 
+struct ssl_str_st {
+    unsigned char *data;
+    int len;
+};
+
 struct ssl_ctx_st {
     const SSL_METHOD *method;
     STACK_OF(SSL_CIPHER) *cipher_list;
@@ -1250,6 +1256,8 @@ SSL_SESSION *(*SSL_CTX_sess_get_get_cb(SSL_CTX *ctx)) (struct ssl_st *ssl,
  * lookup has completed. */
 SSL_SESSION *SSL_magic_pending_session_ptr(void);
 
+SSL_STR *SSL_magic_pending_decrypt_ptr(void);
+
 void SSL_CTX_set_info_callback(SSL_CTX *ctx,
                                void (*cb) (const SSL *ssl, int type,
                                            int val));
@@ -1416,6 +1424,7 @@ int SSL_extension_supported(unsigned int ext_type);
 # define SSL_X509_LOOKUP 4
 
 # define SSL_PENDING_SESSION 7
+# define SSL_PENDING_DECRYPT 8
 
 /* These will only be used when doing non-blocking IO */
 # define SSL_want_nothing(s)     (SSL_want(s) == SSL_NOTHING)
@@ -1423,6 +1432,7 @@ int SSL_extension_supported(unsigned int ext_type);
 # define SSL_want_write(s)       (SSL_want(s) == SSL_WRITING)
 # define SSL_want_x509_lookup(s) (SSL_want(s) == SSL_X509_LOOKUP)
 # define SSL_want_session(s)     (SSL_want(s) == SSL_PENDING_SESSION)
+# define SSL_want_decrypt(s)     (SSL_want(s) == SSL_PENDING_DECRYPT)
 
 # define SSL_MAC_FLAG_READ_MAC_STREAM 1
 # define SSL_MAC_FLAG_WRITE_MAC_STREAM 2
@@ -1876,6 +1886,7 @@ DECLARE_PEM_rw(SSL_SESSION, SSL_SESSION)
 # define SSL_ERROR_WANT_CONNECT          7
 # define SSL_ERROR_WANT_ACCEPT           8
 # define SSL_ERROR_PENDING_SESSION       11
+# define SSL_ERROR_PENDING_DECRYPT       SSL_ERROR_PENDING_SESSION
 # define SSL_CTRL_NEED_TMP_RSA                   1
 # define SSL_CTRL_SET_TMP_RSA                    2
 # define SSL_CTRL_SET_TMP_DH                     3

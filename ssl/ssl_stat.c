@@ -416,6 +416,9 @@ const char *SSL_state_string_long(const SSL *s)
     case SSL3_ST_SR_KEY_EXCH_B:
         str = "SSLv3 read client key exchange B";
         break;
+    case SSL3_ST_SR_KEY_EXCH_C:
+        str = "SSLv3 read client key exchange C";
+        break;
     case SSL3_ST_SR_CERT_VRFY_A:
         str = "SSLv3 read certificate verify A";
         break;
@@ -790,6 +793,9 @@ const char *SSL_state_string(const SSL *s)
         break;
     case SSL3_ST_SR_KEY_EXCH_B:
         str = "3RCKEB";
+        break;
+    case SSL3_ST_SR_KEY_EXCH_C:
+        str = "3RCKEC";
         break;
     case SSL3_ST_SR_CERT_VRFY_A:
         str = "3RCV_A";

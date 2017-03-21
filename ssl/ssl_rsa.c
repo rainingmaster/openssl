@@ -66,6 +66,13 @@
 
 static int ssl_set_cert(CERT *c, X509 *x509);
 static int ssl_set_pkey(CERT *c, EVP_PKEY *pkey);
+static char g_pending_decrypt_magic;
+
+SSL_STR *SSL_magic_pending_decrypt_ptr()
+{
+    return (SSL_STR*) &g_pending_decrypt_magic;
+}
+
 int SSL_use_certificate(SSL *ssl, X509 *x)
 {
     if (x == NULL) {
@@ -216,7 +223,7 @@ static int ssl_set_pkey(CERT *c, EVP_PKEY *pkey)
          * Don't check the public/private key, this is mostly for smart
          * cards.
          */
-        if ((pkey->type == EVP_PKEY_RSA) &&
+        if ((pkey->type == EVP_PKEY_RSA) ||
             (RSA_flags(pkey->pkey.rsa) & RSA_METHOD_FLAG_NO_CHECK)) ;
         else
 #endif
