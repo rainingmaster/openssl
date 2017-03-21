@@ -353,6 +353,12 @@ const char *SSL_state_string_long(const SSL *s)
     case SSL3_ST_SR_CLNT_HELLO_C:
         str = "SSLv3 read client hello C";
         break;
+    case SSL3_ST_SR_CLNT_HELLO_D:
+        str = "SSLv3 read client hello D";
+        break;
+    case SSL3_ST_SR_CLNT_HELLO_E:
+        str = "SSLv3 read client hello E";
+        break;
     case SSL3_ST_SW_HELLO_REQ_A:
         str = "SSLv3 write hello request A";
         break;
@@ -736,6 +742,12 @@ const char *SSL_state_string(const SSL *s)
         break;
     case SSL3_ST_SR_CLNT_HELLO_C:
         str = "3RCH_C";
+        break;
+    case SSL3_ST_SR_CLNT_HELLO_D:
+        str = "3RCH_D";
+        break;
+    case SSL3_ST_SR_CLNT_HELLO_E:
+        str = "3RCH_E";
         break;
     case SSL3_ST_SW_SRVR_HELLO_A:
         str = "3WSH_A";

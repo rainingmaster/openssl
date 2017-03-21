@@ -358,14 +358,20 @@ int ssl3_accept(SSL *s)
         case SSL3_ST_SR_CLNT_HELLO_A:
         case SSL3_ST_SR_CLNT_HELLO_B:
         case SSL3_ST_SR_CLNT_HELLO_C:
+        case SSL3_ST_SR_CLNT_HELLO_D:
 
             s->shutdown = 0;
             ret = ssl3_get_client_hello(s);
+            if (ret == PENDING_SESSION) {
+                s->state = SSL3_ST_SR_CLNT_HELLO_D;
+                s->rwstate = SSL_PENDING_SESSION;
+                goto end;
+            }
             if (ret <= 0)
                 goto end;
 #ifndef OPENSSL_NO_SRP
-            s->state = SSL3_ST_SR_CLNT_HELLO_D;
-        case SSL3_ST_SR_CLNT_HELLO_D:
+            s->state = SSL3_ST_SR_CLNT_HELLO_E;
+        case SSL3_ST_SR_CLNT_HELLO_E:
             {
                 int al;
                 if ((ret = ssl_check_srp_ext_ClientHello(s, &al)) < 0) {
@@ -925,16 +931,25 @@ int ssl3_get_client_hello(SSL *s)
     if (s->state == SSL3_ST_SR_CLNT_HELLO_A) {
         s->state = SSL3_ST_SR_CLNT_HELLO_B;
     }
-    s->first_packet = 1;
-    n = s->method->ssl_get_message(s,
-                                   SSL3_ST_SR_CLNT_HELLO_B,
-                                   SSL3_ST_SR_CLNT_HELLO_C,
-                                   SSL3_MT_CLIENT_HELLO,
-                                   SSL3_RT_MAX_PLAIN_LENGTH, &ok);
 
-    if (!ok)
-        return ((int)n);
-    s->first_packet = 0;
+    if (s->state != SSL3_ST_SR_CLNT_HELLO_D) {
+        s->first_packet = 1;
+        n = s->method->ssl_get_message(s,
+                                       SSL3_ST_SR_CLNT_HELLO_B,
+                                       SSL3_ST_SR_CLNT_HELLO_C,
+                                       SSL3_MT_CLIENT_HELLO,
+                                       SSL3_RT_MAX_PLAIN_LENGTH, &ok);
+ 
+        if (!ok)
+            return ((int)n);
+        s->first_packet = 0;
+    } else {
+        /* We have previously parsed the ClientHello message, and can't
+         * call ssl_get_message again without hashing the message into
+         * the Finished digest again. */
+        n = s->init_num;
+    }
+
     d = p = (unsigned char *)s->init_msg;
 
     /*
@@ -1042,13 +1057,24 @@ int ssl3_get_client_hello(SSL *s)
         if (i == 1 && s->version == s->session->ssl_version) { /* previous
                                                                 * session */
             s->hit = 1;
-        } else if (i == -1)
+        } else if (i == -1) {
             goto err;
-        else {                  /* i == 0 */
+        } else if (i == PENDING_SESSION) {
+            ret = PENDING_SESSION;
+            goto err;
+        } else {                /* i == 0 */
 
             if (!ssl_get_new_session(s, 1))
                 goto err;
         }
+    }
+
+    /*
+     * Switch to server state ClientHello C once the session lookup
+     * is finished so it can proceed with original state loop.
+     */
+    if (s->state == SSL3_ST_SR_CLNT_HELLO_D) {
+        s->state = SSL3_ST_SR_CLNT_HELLO_C;
     }
 
     p += j;

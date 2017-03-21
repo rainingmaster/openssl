@@ -1243,6 +1243,13 @@ void SSL_CTX_sess_set_get_cb(SSL_CTX *ctx,
 SSL_SESSION *(*SSL_CTX_sess_get_get_cb(SSL_CTX *ctx)) (struct ssl_st *ssl,
                                                        unsigned char *Data,
                                                        int len, int *copy);
+
+/* SSL_magic_pending_session_ptr returns a magic SSL_SESSION* which indicates
+ * that the session isn't currently unavailable. SSL_get_error will then return
+ * SSL_ERROR_PENDING_SESSION and the handshake can be retried later when the
+ * lookup has completed. */
+SSL_SESSION *SSL_magic_pending_session_ptr(void);
+
 void SSL_CTX_set_info_callback(SSL_CTX *ctx,
                                void (*cb) (const SSL *ssl, int type,
                                            int val));
@@ -1408,11 +1415,14 @@ int SSL_extension_supported(unsigned int ext_type);
 # define SSL_READING     3
 # define SSL_X509_LOOKUP 4
 
+# define SSL_PENDING_SESSION 7
+
 /* These will only be used when doing non-blocking IO */
 # define SSL_want_nothing(s)     (SSL_want(s) == SSL_NOTHING)
 # define SSL_want_read(s)        (SSL_want(s) == SSL_READING)
 # define SSL_want_write(s)       (SSL_want(s) == SSL_WRITING)
 # define SSL_want_x509_lookup(s) (SSL_want(s) == SSL_X509_LOOKUP)
+# define SSL_want_session(s)     (SSL_want(s) == SSL_PENDING_SESSION)
 
 # define SSL_MAC_FLAG_READ_MAC_STREAM 1
 # define SSL_MAC_FLAG_WRITE_MAC_STREAM 2
@@ -1865,6 +1875,7 @@ DECLARE_PEM_rw(SSL_SESSION, SSL_SESSION)
 # define SSL_ERROR_ZERO_RETURN           6
 # define SSL_ERROR_WANT_CONNECT          7
 # define SSL_ERROR_WANT_ACCEPT           8
+# define SSL_ERROR_PENDING_SESSION       11
 # define SSL_CTRL_NEED_TMP_RSA                   1
 # define SSL_CTRL_SET_TMP_RSA                    2
 # define SSL_CTRL_SET_TMP_DH                     3
