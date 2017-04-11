@@ -2236,18 +2236,20 @@ void SSL_set_cert_cb(SSL *s, int (*cb) (SSL *ssl, void *arg), void *arg)
     ssl_cert_set_cert_cb(s->cert, cb, arg);
 }
 
-void SSL_CTX_set_secr_gen_cb(SSL_CTX *c, SSL_STR* (*cb) (SSL *ssl,
-                                                         unsigned char *p,
-                                                         int length))
+void SSL_CTX_set_gen_secret_cb(SSL_CTX *c, SSL_STR* (*cb) (SSL *ssl,
+                                                            unsigned char *p,
+                                                            int length,
+                                                            int flags))
 {
-    ssl_cert_set_secr_gen_cb(c->cert, cb);
+    ssl_cert_set_gen_secret_cb(c->cert, cb);
 }
 
-void SSL_set_secr_gen_cb(SSL *s, SSL_STR* (*cb) (SSL *ssl,
-                                                 unsigned char *p,
-                                                 int length))
+void SSL_CTX_set_fetch_sign_cb(SSL_CTX *c, SSL_STR* (*cb) (SSL *ssl,
+                                                           unsigned char *p,
+                                                           int length,
+                                                           int flags))
 {
-    ssl_cert_set_secr_gen_cb(s->cert, cb);
+    ssl_cert_set_fetch_sign_cb(c->cert, cb);
 }
 
 void ssl_set_cert_masks(CERT *c, const SSL_CIPHER *cipher)
@@ -2726,8 +2728,8 @@ int SSL_get_error(const SSL *s, int i)
     if ((i < 0) && SSL_want_session(s))
         return (SSL_ERROR_PENDING_SESSION);
 
-    if ((i < 0) && SSL_want_decrypt(s))
-        return (SSL_ERROR_PENDING_DECRYPT);
+    if ((i < 0) && SSL_want_str(s))
+        return (SSL_ERROR_PENDING_STR);
 
     if ((i < 0) && SSL_want_read(s)) {
         bio = SSL_get_rbio(s);

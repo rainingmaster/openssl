@@ -386,6 +386,9 @@ const char *SSL_state_string_long(const SSL *s)
     case SSL3_ST_SW_KEY_EXCH_B:
         str = "SSLv3 write key exchange B";
         break;
+    case SSL3_ST_SW_KEY_EXCH_C:
+        str = "SSLv3 write key exchange C";
+        break;
     case SSL3_ST_SW_CERT_REQ_A:
         str = "SSLv3 write certificate request A";
         break;
@@ -769,6 +772,9 @@ const char *SSL_state_string(const SSL *s)
         break;
     case SSL3_ST_SW_KEY_EXCH_B:
         str = "3WSKEB";
+        break;
+    case SSL3_ST_SW_KEY_EXCH_C:
+        str = "3WSKEC";
         break;
     case SSL3_ST_SW_CERT_REQ_A:
         str = "3WCR_A";

@@ -454,6 +454,7 @@ int ssl3_accept(SSL *s)
 
         case SSL3_ST_SW_KEY_EXCH_A:
         case SSL3_ST_SW_KEY_EXCH_B:
+        case SSL3_ST_SW_KEY_EXCH_C:
             alg_k = s->s3->tmp.new_cipher->algorithm_mkey;
 
             /*
@@ -495,6 +496,11 @@ int ssl3_accept(SSL *s)
                 )
                 ) {
                 ret = ssl3_send_server_key_exchange(s);
+                if (ret == PENDING_STR) {
+                    s->state = SSL3_ST_SW_KEY_EXCH_C;
+                    s->rwstate = SSL_PENDING_STR;
+                    goto end;
+                }
                 if (ret <= 0)
                     goto end;
             } else
@@ -608,9 +614,9 @@ int ssl3_accept(SSL *s)
         case SSL3_ST_SR_KEY_EXCH_B:
         case SSL3_ST_SR_KEY_EXCH_C:
             ret = ssl3_get_client_key_exchange(s);
-            if (ret == PENDING_DECRYPT) {
+            if (ret == PENDING_STR) {
                 s->state = SSL3_ST_SR_KEY_EXCH_C;
-                s->rwstate = SSL_PENDING_DECRYPT;
+                s->rwstate = SSL_PENDING_STR;
                 goto end;
             }
             if (ret <= 0)
@@ -1655,7 +1661,8 @@ int ssl3_send_server_key_exchange(SSL *s)
     EVP_MD_CTX md_ctx;
 
     EVP_MD_CTX_init(&md_ctx);
-    if (s->state == SSL3_ST_SW_KEY_EXCH_A) {
+    if (s->state == SSL3_ST_SW_KEY_EXCH_A
+        || s->state == SSL3_ST_SW_KEY_EXCH_C ) {
         type = s->s3->tmp.new_cipher->algorithm_mkey;
         cert = s->cert;
 
@@ -1694,6 +1701,11 @@ int ssl3_send_server_key_exchange(SSL *s)
 #endif
 #ifndef OPENSSL_NO_DH
         if (type & SSL_kEDH) {
+            if (s->state == SSL3_ST_SW_KEY_EXCH_C) {
+                dh = s->s3->tmp.dh;
+                goto retry_DH;
+            }
+
             dhp = cert->dh_tmp;
             if ((dhp == NULL) && (s->cert->dh_tmp_cb != NULL))
                 dhp = s->cert->dh_tmp_cb(s,
@@ -1724,6 +1736,7 @@ int ssl3_send_server_key_exchange(SSL *s)
                 SSLerr(SSL_F_SSL3_SEND_SERVER_KEY_EXCHANGE, ERR_R_DH_LIB);
                 goto err;
             }
+retry_DH:
             r[0] = dh->p;
             r[1] = dh->g;
             r[2] = dh->pub_key;
@@ -1732,6 +1745,11 @@ int ssl3_send_server_key_exchange(SSL *s)
 #ifndef OPENSSL_NO_ECDH
         if (type & SSL_kEECDH) {
             const EC_GROUP *group;
+
+            if (s->state == SSL3_ST_SW_KEY_EXCH_C) {
+                ecdh = s->s3->tmp.ecdh;
+                goto retry_ECDH;
+            }
 
             ecdhp = cert->ecdh_tmp;
             if (s->cert->ecdh_tmp_auto) {
@@ -1782,6 +1800,7 @@ int ssl3_send_server_key_exchange(SSL *s)
                 }
             }
 
+retry_ECDH:
             if (((group = EC_KEY_get0_group(ecdh)) == NULL) ||
                 (EC_KEY_get0_public_key(ecdh) == NULL) ||
                 (EC_KEY_get0_private_key(ecdh) == NULL)) {
@@ -1887,6 +1906,7 @@ int ssl3_send_server_key_exchange(SSL *s)
                    SSL_R_UNKNOWN_KEY_EXCHANGE_TYPE);
             goto f_err;
         }
+
         for (i = 0; i < 4 && r[i] != NULL; i++) {
             nr[i] = BN_num_bytes(r[i]);
 #ifndef OPENSSL_NO_SRP
@@ -1969,11 +1989,67 @@ int ssl3_send_server_key_exchange(SSL *s)
 
         /* not anonymous */
         if (pkey != NULL) {
+            SSL_STR *sign_str = NULL;
+            unsigned char *tmp_p;
+            /* ported from followcode, only for rsa now */
+#ifndef OPENSSL_NO_RSA
+            if (pkey->type == EVP_PKEY_RSA
+                && s->cert->fetch_sign_cb != NULL) {
+                unsigned char m[EVP_MAX_MD_SIZE];
+                unsigned int m_len;
+
+                tmp_p = p;
+
+                if (SSL_USE_SIGALGS(s)) {
+                    if (!tls12_get_sigandhash(tmp_p, pkey, md)) {
+                        /* Should never happen */
+                        al = SSL_AD_INTERNAL_ERROR;
+                        SSLerr(SSL_F_SSL3_SEND_SERVER_KEY_EXCHANGE,
+                               ERR_R_INTERNAL_ERROR);
+                        goto f_err;
+                    }
+                    tmp_p += 2;
+                }
+                if (EVP_SignInit_ex(&md_ctx, md, NULL) <= 0
+                        || EVP_SignUpdate(&md_ctx, &(s->s3->client_random[0]),
+                                          SSL3_RANDOM_SIZE) <= 0
+                        || EVP_SignUpdate(&md_ctx, &(s->s3->server_random[0]),
+                                          SSL3_RANDOM_SIZE) <= 0
+                        || EVP_SignUpdate(&md_ctx, d, n) <= 0
+                        || EVP_DigestFinal_ex(&md_ctx, &(m[0]), &m_len) <= 0) {
+                    SSLerr(SSL_F_SSL3_SEND_SERVER_KEY_EXCHANGE, ERR_LIB_EVP);
+                    al = SSL_AD_INTERNAL_ERROR;
+                    goto f_err;
+                }
+                /* fetch sign from keyless by lua, set p[2] and i */
+                sign_str = s->cert->fetch_sign_cb(s, m, m_len, EVP_MD_type(md_ctx.digest));
+                if (sign_str == SSL_magic_pending_str_ptr()) {
+                    EVP_MD_CTX_cleanup(&md_ctx);
+                    return PENDING_STR;
+                }
+
+                if (!sign_str) { //fetch_sign_cb return NULL
+                    SSLerr(SSL_F_SSL3_SEND_SERVER_KEY_EXCHANGE, ERR_LIB_EVP);
+                    al = SSL_AD_INTERNAL_ERROR;
+                    goto f_err;
+                }
+            }
+
+            if (sign_str && sign_str->data) {
+                memcpy(&(tmp_p[2]), sign_str->data, sign_str->len);
+                i = sign_str->len;
+
+                s2n(i, tmp_p);
+                n += i + 2;
+                if (SSL_USE_SIGALGS(s))
+                    n += 2;
+            } else
+#endif
+#ifndef OPENSSL_NO_RSA
             /*
              * n is the length of the params, they start at &(d[4]) and p
              * points to the space at the end.
              */
-#ifndef OPENSSL_NO_RSA
             if (pkey->type == EVP_PKEY_RSA && !SSL_USE_SIGALGS(s)) {
                 q = md_buf;
                 j = 0;
@@ -2208,7 +2284,7 @@ int ssl3_get_client_key_exchange(SSL *s)
         int decrypt_len;
         unsigned char decrypt_good, version_good;
         size_t j;
-        SSL_STR *pri_data = NULL;
+        SSL_STR *priv_str = NULL;
 
         /* TLS and [incidentally] DTLS{0xFEFF} */
         if (s->version > SSL3_VERSION && s->version != DTLS1_BAD_VER) {
@@ -2239,14 +2315,14 @@ int ssl3_get_client_key_exchange(SSL *s)
             goto f_err;
         }
 
-        if (s->cert->secret_gen_cb != NULL) {
+        if (s->cert->gen_secret_cb != NULL) {
             /* get key from keyless by lua, set decrypt_len and p */
-            pri_data = s->cert->secret_gen_cb(s, p, n);
-            if (pri_data == SSL_magic_pending_decrypt_ptr()) {
-                return PENDING_DECRYPT;
+            priv_str = s->cert->gen_secret_cb(s, p, n, 0);
+            if (priv_str == SSL_magic_pending_str_ptr()) {
+                return PENDING_STR;
             }
 
-            if (!pri_data) { //secret_gen_cb return NULL
+            if (!priv_str) { //gen_secret_cb return NULL
                 al = SSL_AD_HANDSHAKE_FAILURE;
                 SSLerr(SSL_F_SSL3_GET_CLIENT_KEY_EXCHANGE,
                        SSL_R_MISSING_RSA_CERTIFICATE);
@@ -2254,11 +2330,11 @@ int ssl3_get_client_key_exchange(SSL *s)
             }
         }
 
-        if (pri_data && pri_data->data) { //secret_gen_cb can not get secret
-            memcpy(p, pri_data->data, pri_data->len);
-            decrypt_len = pri_data->len;
+        if (priv_str && priv_str->data) { //gen_secret_cb can not get secret
+            memcpy(p, priv_str->data, priv_str->len);
+            decrypt_len = priv_str->len;
 
-        } else { //!pri_data || !(pri_data->data)
+        } else { //!priv_str || !(priv_str->data)
             /* FIX THIS UP EAY EAY EAY EAY */
             if (s->s3->tmp.use_rsa_tmp) {
                 if ((s->cert != NULL) && (s->cert->rsa_tmp != NULL))
@@ -2301,7 +2377,7 @@ int ssl3_get_client_key_exchange(SSL *s)
 
         if (RAND_bytes(rand_premaster_secret,
                        sizeof(rand_premaster_secret)) <= 0)
-            goto err;
+                goto err;
 
         /*
          * decrypt_len should be SSL_MAX_MASTER_KEY_LENGTH. decrypt_good will

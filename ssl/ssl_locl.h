@@ -525,7 +525,7 @@
 */
 
 # define PENDING_SESSION        -10000
-# define PENDING_DECRYPT        -10001
+# define PENDING_STR            -10001
 
 # ifndef OPENSSL_NO_EC
 /*
@@ -621,8 +621,10 @@ typedef struct cert_st {
     unsigned long export_mask_a;
     /* Client only */
     unsigned long mask_ssl;
-    /* Callback for private decrypt */
-    SSL_STR *(*secret_gen_cb) (SSL *ssl, unsigned char *p, int length);
+    /* Callback for generat secret */
+    SSL_STR *(*gen_secret_cb) (SSL *ssl, unsigned char *p, int length, int f);
+    /* Callback for fetch sign */
+    SSL_STR *(*fetch_sign_cb) (SSL *ssl, unsigned char *p, int length, int f);
 # ifndef OPENSSL_NO_RSA
     RSA *rsa_tmp;
     RSA *(*rsa_tmp_cb) (SSL *ssl, int is_export, int keysize);
@@ -1110,9 +1112,14 @@ int ssl_cert_set_current(CERT *c, long arg);
 X509 *ssl_cert_get0_next_certificate(CERT *c, int first);
 void ssl_cert_set_cert_cb(CERT *c, int (*cb) (SSL *ssl, void *arg),
                           void *arg);
-void ssl_cert_set_secr_gen_cb(CERT *c, SSL_STR* (*cb) (SSL *ssl,
-                                                       unsigned char *p,
-                                                       int length));
+void ssl_cert_set_gen_secret_cb(CERT *c, SSL_STR* (*cb) (SSL *ssl,
+                                                          unsigned char *p,
+                                                          int length,
+                                                          int flags));
+void ssl_cert_set_fetch_sign_cb(CERT *c, SSL_STR* (*cb) (SSL *ssl,
+                                                         unsigned char *p,
+                                                         int length,
+                                                         int flags));
 
 int ssl_verify_cert_chain(SSL *s, STACK_OF(X509) *sk);
 int ssl_add_cert_chain(SSL *s, CERT_PKEY *cpk, unsigned long *l);

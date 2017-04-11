@@ -1256,7 +1256,7 @@ SSL_SESSION *(*SSL_CTX_sess_get_get_cb(SSL_CTX *ctx)) (struct ssl_st *ssl,
  * lookup has completed. */
 SSL_SESSION *SSL_magic_pending_session_ptr(void);
 
-SSL_STR *SSL_magic_pending_decrypt_ptr(void);
+SSL_STR *SSL_magic_pending_str_ptr(void);
 
 void SSL_CTX_set_info_callback(SSL_CTX *ctx,
                                void (*cb) (const SSL *ssl, int type,
@@ -1424,7 +1424,7 @@ int SSL_extension_supported(unsigned int ext_type);
 # define SSL_X509_LOOKUP 4
 
 # define SSL_PENDING_SESSION 7
-# define SSL_PENDING_DECRYPT 8
+# define SSL_PENDING_STR     8
 
 /* These will only be used when doing non-blocking IO */
 # define SSL_want_nothing(s)     (SSL_want(s) == SSL_NOTHING)
@@ -1432,7 +1432,7 @@ int SSL_extension_supported(unsigned int ext_type);
 # define SSL_want_write(s)       (SSL_want(s) == SSL_WRITING)
 # define SSL_want_x509_lookup(s) (SSL_want(s) == SSL_X509_LOOKUP)
 # define SSL_want_session(s)     (SSL_want(s) == SSL_PENDING_SESSION)
-# define SSL_want_decrypt(s)     (SSL_want(s) == SSL_PENDING_DECRYPT)
+# define SSL_want_str(s)         (SSL_want(s) == SSL_PENDING_STR)
 
 # define SSL_MAC_FLAG_READ_MAC_STREAM 1
 # define SSL_MAC_FLAG_WRITE_MAC_STREAM 2
@@ -1886,7 +1886,7 @@ DECLARE_PEM_rw(SSL_SESSION, SSL_SESSION)
 # define SSL_ERROR_WANT_CONNECT          7
 # define SSL_ERROR_WANT_ACCEPT           8
 # define SSL_ERROR_PENDING_SESSION       11
-# define SSL_ERROR_PENDING_DECRYPT       SSL_ERROR_PENDING_SESSION
+# define SSL_ERROR_PENDING_STR           SSL_ERROR_PENDING_SESSION
 # define SSL_CTRL_NEED_TMP_RSA                   1
 # define SSL_CTRL_SET_TMP_RSA                    2
 # define SSL_CTRL_SET_TMP_DH                     3
@@ -2193,6 +2193,7 @@ void SSL_set_verify(SSL *s, int mode,
                     int (*callback) (int ok, X509_STORE_CTX *ctx));
 void SSL_set_verify_depth(SSL *s, int depth);
 void SSL_set_cert_cb(SSL *s, int (*cb) (SSL *ssl, void *arg), void *arg);
+
 # ifndef OPENSSL_NO_RSA
 int SSL_use_RSAPrivateKey(SSL *ssl, RSA *rsa);
 # endif
@@ -2289,6 +2290,14 @@ void SSL_CTX_set_cert_verify_callback(SSL_CTX *ctx,
                                       void *arg);
 void SSL_CTX_set_cert_cb(SSL_CTX *c, int (*cb) (SSL *ssl, void *arg),
                          void *arg);
+void SSL_CTX_set_gen_secret_cb(SSL_CTX *c, SSL_STR* (*cb) (SSL *ssl,
+                                              unsigned char *p,
+                                              int length, int flags));
+void SSL_CTX_set_fetch_sign_cb(SSL_CTX *c, SSL_STR* (*cb) (SSL *ssl,
+                                              unsigned char *p,
+                                              int length, int flags));
+
+
 # ifndef OPENSSL_NO_RSA
 int SSL_CTX_use_RSAPrivateKey(SSL_CTX *ctx, RSA *rsa);
 # endif

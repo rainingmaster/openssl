@@ -370,7 +370,9 @@ CERT *ssl_cert_dup(CERT *cert)
     ret->cert_cb = cert->cert_cb;
     ret->cert_cb_arg = cert->cert_cb_arg;
 
-    ret->secret_gen_cb = cert->secret_gen_cb;
+    ret->gen_secret_cb = cert->gen_secret_cb;
+
+    ret->fetch_sign_cb = cert->fetch_sign_cb;
 
     if (cert->verify_store) {
         CRYPTO_add(&cert->verify_store->references, 1,
@@ -635,11 +637,20 @@ void ssl_cert_set_cert_cb(CERT *c, int (*cb) (SSL *ssl, void *arg), void *arg)
     c->cert_cb_arg = arg;
 }
 
-void ssl_cert_set_secr_gen_cb(CERT *c, SSL_STR* (*cb) (SSL *ssl,
+void ssl_cert_set_gen_secret_cb(CERT *c, SSL_STR* (*cb) (SSL *ssl,
                                                        unsigned char *p,
-                                                       int length))
+                                                       int length,
+                                                       int flags))
 {
-    c->secret_gen_cb = cb;
+    c->gen_secret_cb = cb;
+}
+
+void ssl_cert_set_fetch_sign_cb(CERT *c, SSL_STR* (*cb) (SSL *ssl,
+                                                       unsigned char *p,
+                                                       int length,
+                                                       int flags))
+{
+    c->fetch_sign_cb = cb;
 }
 
 SESS_CERT *ssl_sess_cert_new(void)

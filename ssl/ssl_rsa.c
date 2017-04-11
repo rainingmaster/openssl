@@ -66,11 +66,11 @@
 
 static int ssl_set_cert(CERT *c, X509 *x509);
 static int ssl_set_pkey(CERT *c, EVP_PKEY *pkey);
-static char g_pending_decrypt_magic;
+static char g_pending_str_magic;
 
-SSL_STR *SSL_magic_pending_decrypt_ptr()
+SSL_STR *SSL_magic_pending_str_ptr()
 {
-    return (SSL_STR*) &g_pending_decrypt_magic;
+    return (SSL_STR*) &g_pending_str_magic;
 }
 
 int SSL_use_certificate(SSL *ssl, X509 *x)
